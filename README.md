@@ -1,68 +1,100 @@
 # Smart Router for Claude Code
 
-**FusionRoute-inspired intelligent model routing skill for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
+**Research-backed intelligent model routing skill for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).**
 
-Automatically classifies task complexity and routes to the **cheapest capable model** (Haiku / Sonnet / Opus) via subagents — saving **30-75% on token costs** without sacrificing quality.
+Automatically classifies task complexity and routes to the **cheapest capable model** (Haiku / Sonnet / Opus) via subagents — saving **30–75% on token costs** without sacrificing quality.
+
+Built on insights from 7 research papers and tools:
+[FusionRoute](https://arxiv.org/abs/2601.05106) · [RouteLLM](https://arxiv.org/abs/2406.18665) · [TRIM](https://arxiv.org/abs/2601.10245) · [xRouter](https://arxiv.org/html/2510.08439v1) · [LLMRouter](https://github.com/ulab-uiuc/LLMRouter) · [RouterBench](https://arxiv.org/abs/2403.12031) · [claude-router](https://github.com/0xrdan/claude-router)
 
 ![Claude Code Skill](https://img.shields.io/badge/Claude%20Code-Skill-blueviolet)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green)
 
 ## The Problem
 
-Claude Code uses one model for everything. Running Opus to `grep` a file costs **18x more** than using Haiku — for the same result. Over a session, this adds up fast.
+Claude Code uses one model for everything. Running Opus to `grep` a file costs **18.75× more** than Haiku — for the same result. Over a session, this adds up fast.
 
 ## The Solution
 
 Smart Router acts as an intelligent classifier that:
 
-1. **Analyzes** your task's complexity (verb, scope, ambiguity, risk)
-2. **Routes** to the cheapest model that can handle it
-3. **Decomposes** multi-step tasks and routes each step independently
-4. **Escalates** automatically if a cheaper model fails
+1. **Fast-matches** common patterns (zero cost, ~0ms) — inspired by [claude-router](https://github.com/0xrdan/claude-router)
+2. **Scores** task complexity across 6 dimensions when rules don't match — inspired by [RouteLLM](https://arxiv.org/abs/2406.18665)
+3. **Routes** to the cheapest model that can handle it
+4. **Decomposes** multi-step tasks with per-step routing — inspired by [TRIM](https://arxiv.org/abs/2601.10245)
+5. **Orchestrates** complex work: Opus plans, Sonnet/Haiku execute — inspired by [FusionRoute](https://arxiv.org/abs/2601.05106)
+6. **Escalates** automatically if a cheaper model fails — inspired by [xRouter](https://arxiv.org/html/2510.08439v1)
 
 ```
-┌─────────────────┐
-│   Your Task      │
-└────────┬────────┘
-         │ classify
-    ┌────┴────┐
-    ▼         ▼         ▼
-┌───────┐ ┌───────┐ ┌───────┐
-│ HAIKU │ │SONNET │ │ OPUS  │
-│  ⚡    │ │  ⚖️    │ │  🧠   │
-│ $0.80 │ │ $3.00 │ │$15.00 │
-│ /MTok │ │ /MTok │ │ /MTok │
-└───────┘ └───────┘ └───────┘
+User Task
+    │
+    ▼
+┌──────────────────┐
+│ STAGE 1: RULES   │ ← Zero-cost pattern matching
+└────────┬─────────┘
+    match?│
+   ┌─────┴─────┐
+   YES         NO
+   │    ┌──────────────────┐
+   │    │ STAGE 2: SCORING │ ← 6-dimension classification
+   │    └────────┬─────────┘
+   │             │
+   ▼             ▼
+┌──────┐ ┌──────┐ ┌──────┐
+│HAIKU │ │SONNET│ │ OPUS │
+│  ⚡   │ │  ⚖️   │ │  🧠  │
+└──┬───┘ └──┬───┘ └──┬───┘
+   └────┬────┘────────┘
+        ▼
+┌──────────────────┐
+│ STAGE 3:         │ ← Auto-retry on higher tier
+│ ESCALATION       │    if result is inadequate
+└──────────────────┘
 ```
+
+## Key Features
+
+| Feature | Inspired By | What It Does |
+|---------|------------|-------------|
+| **Two-stage classification** | [claude-router](https://github.com/0xrdan/claude-router) + [RouteLLM](https://arxiv.org/abs/2406.18665) | Fast rules first, multi-dimensional scoring as fallback |
+| **6-dimension scoring** | [RouterBench](https://arxiv.org/abs/2403.12031) | Intent, scope, ambiguity, creation, stakes, context needs |
+| **Step-level routing** | [TRIM](https://arxiv.org/abs/2601.10245) | Route each step of a multi-step task independently — 5× efficiency |
+| **Orchestration mode** | [FusionRoute](https://arxiv.org/abs/2601.05106) + `opusplan` | Opus designs the plan, Sonnet/Haiku execute |
+| **Confidence escalation** | [xRouter](https://arxiv.org/html/2510.08439v1) | Auto-retry on higher tier when lower tier fails |
+| **Parallel routing** | Claude Code Agent tool | Launch multiple agents simultaneously for independent subtasks |
+| **Cost badges** | Original | Show which tier handled each task |
 
 ## Routing Logic
 
 | Tier | Model | When | Cost vs Opus |
 |------|-------|------|:------------:|
-| ⚡ Haiku | Cheapest | Search, read, list, explain, trivial edits | **~5%** |
-| ⚖️ Sonnet | Balanced | Code edits, bug fixes, tests, refactoring | **~20%** |
-| 🧠 Opus | Full power | Architecture, complex debug, multi-step features | **100%** |
+| ⚡ Haiku | Cheapest | Search, read, list, explain, trivial edits, verify | **~5%** |
+| ⚖️ Sonnet | Balanced | Code edits, bug fixes, tests, refactoring, reviews | **~20%** |
+| 🧠 Opus | Full power | Architecture, complex debug, multi-step features, security | **100%** |
 
-### Classification Signals
+### Scoring Dimensions
 
-| Signal | Low (Haiku) | Medium (Sonnet) | High (Opus) |
-|--------|:-----------:|:---------------:|:-----------:|
-| **Scope** | 1 file | 2-5 files | 5+ files / unknown |
-| **Intent** | read/find/list | fix/add/edit | design/build/migrate |
-| **Ambiguity** | Clear, factual | Bounded | Vague, open-ended |
-| **Creation** | None | Bounded | Greenfield |
-| **Stakes** | None | Moderate | Security/prod/data |
+| Dimension | 0 (Low) | 1 (Medium) | 2 (High) |
+|-----------|---------|------------|----------|
+| **Intent** | read, find, list | fix, add, edit, test | design, build, migrate |
+| **Scope** | 1 file | 2–5 files | 5+ files / unknown |
+| **Ambiguity** | Exact target | Bounded module | Vague / open-ended |
+| **Creation** | No new code | Modify existing | New files / module |
+| **Stakes** | Dev, reversible | Shared code | Prod, security, data |
+| **Context** | Self-contained | Some history | Full conversation needed |
+
+Score 0–3 → Haiku · Score 4–6 → Sonnet · Score 7–12 → Opus
 
 ## Installation
 
-### Option 1: Symlink into Claude Code skills
+### Option 1: Clone + symlink (recommended)
 
 ```bash
 git clone https://github.com/gacabartosz/claude-smart-router.git ~/.agents/skills/smart-router
 ln -s ../../.agents/skills/smart-router ~/.claude/skills/smart-router
 ```
 
-### Option 2: Copy SKILL.md only
+### Option 2: Download SKILL.md only
 
 ```bash
 mkdir -p ~/.claude/skills/smart-router
@@ -70,9 +102,9 @@ curl -o ~/.claude/skills/smart-router/SKILL.md \
   https://raw.githubusercontent.com/gacabartosz/claude-smart-router/main/SKILL.md
 ```
 
-### Option 3: Add to CLAUDE.md
+### Option 3: Copy into CLAUDE.md
 
-Copy the contents of `SKILL.md` into your project's `CLAUDE.md` file.
+Paste the contents of `SKILL.md` into your project's `CLAUDE.md` file.
 
 ## Usage
 
@@ -83,32 +115,42 @@ Copy the contents of `SKILL.md` into your project's `CLAUDE.md` file.
 → [⚡ HAIKU] Found 23 TODOs across 8 files.
 
 /route fix the pagination bug in the users list
-→ [⚖️ SONNET] Fixed: offset was (page * limit) instead of ((page-1) * limit).
+→ [⚖️ SONNET] Fixed offset calculation in src/api/list.ts:28.
 
 /route design a caching strategy for our API
-→ [🧠 OPUS] Strategy: Redis response cache + Prisma query cache + event invalidation.
+→ [🧠 OPUS] Redis response cache + Prisma middleware + event invalidation.
 ```
 
-### Force a specific tier
+### Force a tier
 
 ```
 /route haiku: list all .env files
-/route sonnet: add error handling to all controllers
+/route sonnet: add error handling to controllers
 /route opus: debug the memory leak
 ```
 
-### Multi-step decomposition
+### Orchestration mode
 
 ```
-/route build a user preferences feature with API, UI, and tests
+/route orchestrate: add user preferences with API, UI, and tests
 
-→ Step 1: [⚡ HAIKU]  Explore existing patterns
-→ Step 2: [🧠 OPUS]   Design the schema and API
-→ Step 3: [⚖️ SONNET] Implement endpoints
-→ Step 4: [⚖️ SONNET] Build React UI
+→ Step 1: [🧠 OPUS]   Design schema and API contract
+→ Step 2: [⚡ HAIKU]  Explore existing patterns
+→ Step 3: [⚖️ SONNET] Implement API endpoints
+→ Step 4: [⚖️ SONNET] Build React preferences panel
 → Step 5: [⚖️ SONNET] Write tests
-→ Step 6: [⚡ HAIKU]  Verify everything passes
-→ [MIXED] Done. Saved ~40% vs all-Opus.
+→ Step 6: [⚡ HAIKU]  Run tests and verify
+→ [🧠→⚖️→⚡ ORCHESTRATED] Done. ~45% saved vs all-Opus.
+```
+
+### Auto-escalation
+
+```
+/route explain the caching strategy in this codebase
+
+→ [⚡ HAIKU] "Found cache.ts but unsure about cross-service invalidation"
+→ [⚡→⚖️ ESCALATED] "Uses Redis pub/sub: UserService publishes to 'user:changed',
+   CacheService subscribes and invalidates. See src/cache/subscriber.ts:15."
 ```
 
 ## Estimated Savings
@@ -119,44 +161,36 @@ Copy the contents of `SKILL.md` into your project's `CLAUDE.md` file.
 | **Developer** (40% search, 40% edit, 20% complex) | 100% | ~45% | **~55%** |
 | **Architect** (20% search, 30% edit, 50% complex) | 100% | ~65% | **~35%** |
 
-## How It Works Under the Hood
+## How It Works
 
-Smart Router is a **prompt-based skill** — no server, no dependencies, no runtime. It's a set of classification rules that Claude Code's main agent follows to decide which `model` parameter to pass to the `Agent` tool.
+Smart Router is a **prompt-based skill** — no server, no dependencies, no runtime cost.
+It's a set of classification rules that Claude Code's agent follows to decide which
+`model` parameter to pass to the `Agent` tool.
 
-The key insight from [FusionRoute](https://github.com/xiongny/FusionRoute): you don't need one giant model for everything. A lightweight router that selects the right expert per task outperforms always using the most expensive option.
+The full classification algorithm, step-level routing logic, escalation protocol,
+orchestration patterns, and anti-patterns are all documented in [`SKILL.md`](SKILL.md).
 
-FusionRoute does this at the **token level** during decoding. Smart Router adapts this for Claude Code at the **task level** — same principle, practical implementation.
+## Research Foundation
 
-### Decision Algorithm (simplified)
-
-```
-score = 0
-score += intent_score    // read=0, edit=1, design=2
-score += scope_score     // 1 file=0, 2-5=1, 5+=2
-score += ambiguity_score // clear=0, bounded=1, vague=2
-score += creation_score  // none=0, yes=1
-score += risk_score      // low=0, medium=1, high=2
-
-if score <= 2: HAIKU
-if score <= 5: SONNET
-if score >= 6: OPUS
-```
-
-## Inspiration
-
-- **[FusionRoute](https://arxiv.org/abs/2601.05106)** — Token-Level LLM Collaboration (Meta AI + CMU, 2026)
-- The idea that a lightweight router can outperform always using the most expensive model
-- Adapted from token-level expert selection to task-level model routing for practical CLI usage
+| Paper / Tool | Key Insight Used |
+|-------------|-----------------|
+| [FusionRoute](https://arxiv.org/abs/2601.05106) (Meta AI, 2026) | Expert selection + complementary correction per step |
+| [RouteLLM](https://arxiv.org/abs/2406.18665) (LMSYS, ICLR 2025) | Threshold-based routing, 2× cost savings |
+| [TRIM](https://arxiv.org/abs/2601.10245) (2025) | Step-level routing for multi-step reasoning, 5× efficiency |
+| [xRouter](https://arxiv.org/html/2510.08439v1) (2025) | RL cost-aware routing, Pareto-optimal cost-quality tradeoff |
+| [LLMRouter](https://github.com/ulab-uiuc/LLMRouter) (UIUC, 2025) | 16+ routing strategies (KNN, SVM, Graph, Agentic) |
+| [RouterBench](https://arxiv.org/abs/2403.12031) (2024) | Multi-dimensional routing benchmarks, 405k inferences |
+| [claude-router](https://github.com/0xrdan/claude-router) (2026) | Two-tier rules + LLM fallback, orchestration mode |
 
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI
-- Claude Max plan or API access (for multi-model support)
-- Agent tool with `model` parameter support
+- Claude Max plan or API access with multi-model support
+- Agent tool with `model` parameter
 
 ## License
 
-MIT — use it, fork it, improve it.
+MIT
 
 ---
 
